@@ -56,26 +56,92 @@ async function getDiskUsage() {
 // Get CPU usage
 async function getCpuUsage() {
   try {
-    // Try to get CPU usage using top command
-    const result = await execAsync(
-      "top -l 1 | grep 'CPU usage' | awk '{print $3}' | sed 's/%//'"
-    );
-    const cpuUsage = parseFloat(result.stdout.trim());
+    // Method 1: Try to get CPU usage using top command (macOS style)
+    try {
+      const result = await execAsync(
+        "top -l 1 | grep 'CPU usage' | awk '{print $3}' | sed 's/%//'"
+      );
+      const cpuUsage = parseFloat(result.stdout.trim());
 
-    if (!isNaN(cpuUsage)) {
-      return {
-        success: true,
-        usage: cpuUsage.toFixed(1),
-        cores: os.cpus().length,
-        model: os.cpus()[0].model,
-      };
+      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+        return {
+          success: true,
+          usage: cpuUsage.toFixed(1),
+          usageType: 'percentage',
+          cores: os.cpus().length,
+          model: os.cpus()[0].model,
+        };
+      }
+    } catch (error) {
+      console.log('Method 1 failed:', error.message);
     }
 
-    // Fallback to load average
+    // Method 2: Try Linux-style top command
+    try {
+      const result = await execAsync(
+        "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
+      );
+      const cpuUsage = parseFloat(result.stdout.trim());
+
+      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+        return {
+          success: true,
+          usage: cpuUsage.toFixed(1),
+          usageType: 'percentage',
+          cores: os.cpus().length,
+          model: os.cpus()[0].model,
+        };
+      }
+    } catch (error) {
+      console.log('Method 2 failed:', error.message);
+    }
+
+    // Method 3: Try using vmstat
+    try {
+      const result = await execAsync(
+        "vmstat 1 2 | tail -1 | awk '{print 100-$15}'"
+      );
+      const cpuUsage = parseFloat(result.stdout.trim());
+
+      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+        return {
+          success: true,
+          usage: cpuUsage.toFixed(1),
+          usageType: 'percentage',
+          cores: os.cpus().length,
+          model: os.cpus()[0].model,
+        };
+      }
+    } catch (error) {
+      console.log('Method 3 failed:', error.message);
+    }
+
+    // Method 4: Try using mpstat (if available)
+    try {
+      const result = await execAsync(
+        "mpstat 1 1 | tail -1 | awk '{print 100-$NF}'"
+      );
+      const cpuUsage = parseFloat(result.stdout.trim());
+
+      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+        return {
+          success: true,
+          usage: cpuUsage.toFixed(1),
+          usageType: 'percentage',
+          cores: os.cpus().length,
+          model: os.cpus()[0].model,
+        };
+      }
+    } catch (error) {
+      console.log('Method 4 failed:', error.message);
+    }
+
+    // Fallback to load average if all percentage methods fail
     const loadAvg = os.loadavg();
     return {
       success: true,
-      usage: 'N/A (using load average)',
+      usage: loadAvg[0].toFixed(2),
+      usageType: 'load_average',
       loadAverage: {
         '1min': loadAvg[0].toFixed(2),
         '5min': loadAvg[1].toFixed(2),
