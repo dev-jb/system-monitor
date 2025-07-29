@@ -1,0 +1,16 @@
+{
+  "name": "system-monitor",
+  "version": "1.0.0",
+  "description": "System Resource Monitor for RPC Nodes",
+  "main": "system_monitor.js",
+  "scripts": {
+    "start": "node system_monitor.js",
+    "dev": "node system_monitor.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["system", "monitor", "resources"],
+  "author": "",
+  "license": "MIT"
+}
