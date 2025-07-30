@@ -56,101 +56,185 @@ async function getDiskUsage() {
 // Get CPU usage
 async function getCpuUsage() {
   try {
-    // Method 1: Try to get CPU usage using top command (macOS style)
-    try {
-      const result = await execAsync(
-        "top -l 1 | grep 'CPU usage' | awk '{print $3}' | sed 's/%//'"
-      );
-      const cpuUsage = parseFloat(result.stdout.trim());
+    const platform = os.platform();
+    console.log(`🔍 System Monitor - Detected platform: ${platform}`);
+    let cpuUsage;
 
-      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+    if (platform === 'darwin') {
+      // macOS
+      console.log('🍎 System Monitor - Using macOS CPU monitoring...');
+      try {
+        const result = await execAsync(
+          "top -l 1 | grep 'CPU usage' | awk '{print $3}' | sed 's/%//'"
+        );
+        cpuUsage = parseFloat(result.stdout.trim());
+        console.log(
+          `📊 macOS top command result: ${result.stdout.trim()} -> ${cpuUsage}`
+        );
+
+        if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+          return {
+            success: true,
+            usage: cpuUsage.toFixed(1),
+            usageType: 'percentage',
+            cores: os.cpus().length,
+            model: os.cpus()[0].model,
+            platform: platform,
+          };
+        }
+      } catch (error) {
+        console.log('⚠️ macOS CPU monitoring failed:', error.message);
+      }
+    } else if (platform === 'linux') {
+      // Linux/Ubuntu
+      console.log('🐧 System Monitor - Using Linux CPU monitoring...');
+
+      // Method 1: Try using /proc/loadavg (most reliable)
+      try {
+        const loadAvgResult = await execAsync('cat /proc/loadavg');
+        const loadAvg = loadAvgResult.stdout.trim().split(' ')[0];
+        const cpuCount = os.cpus().length;
+
+        // Convert load average to CPU percentage (rough approximation)
+        // Load average of 1.0 = 100% CPU usage for a single core
+        const loadPercentage = (parseFloat(loadAvg) / cpuCount) * 100;
+        cpuUsage = Math.min(loadPercentage, 100); // Cap at 100%
+
+        console.log(
+          `📊 Load average: ${loadAvg}, CPU cores: ${cpuCount}, Estimated CPU: ${cpuUsage.toFixed(
+            1
+          )}%`
+        );
+
         return {
           success: true,
           usage: cpuUsage.toFixed(1),
           usageType: 'percentage',
-          cores: os.cpus().length,
+          cores: cpuCount,
           model: os.cpus()[0].model,
+          platform: platform,
         };
-      }
-    } catch (error) {
-      console.log('Method 1 failed:', error.message);
-    }
+      } catch (loadError) {
+        console.log(
+          '⚠️ Load average method failed, trying vmstat...',
+          loadError.message
+        );
 
-    // Method 2: Try Linux-style top command
-    try {
-      const result = await execAsync(
-        "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
+        // Method 2: Try vmstat
+        try {
+          const vmstatResult = await execAsync('vmstat 1 2 | tail -1');
+          const vmstatParts = vmstatResult.stdout.trim().split(/\s+/);
+
+          if (vmstatParts.length >= 15) {
+            const idle = parseFloat(vmstatParts[14]);
+            cpuUsage = 100 - idle;
+            console.log(
+              `📊 vmstat result: idle=${idle}%, cpu=${cpuUsage.toFixed(1)}%`
+            );
+
+            return {
+              success: true,
+              usage: cpuUsage.toFixed(1),
+              usageType: 'percentage',
+              cores: os.cpus().length,
+              model: os.cpus()[0].model,
+              platform: platform,
+            };
+          } else {
+            throw new Error('vmstat output format not recognized');
+          }
+        } catch (vmstatError) {
+          console.log(
+            '⚠️ vmstat method failed, trying top...',
+            vmstatError.message
+          );
+
+          // Method 3: Try top (if available)
+          try {
+            const topResult = await execAsync(
+              "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
+            );
+            cpuUsage = parseFloat(topResult.stdout.trim());
+            console.log(
+              `📊 top command result: ${topResult.stdout.trim()} -> ${cpuUsage}`
+            );
+
+            if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+              return {
+                success: true,
+                usage: cpuUsage.toFixed(1),
+                usageType: 'percentage',
+                cores: os.cpus().length,
+                model: os.cpus()[0].model,
+                platform: platform,
+              };
+            }
+          } catch (topError) {
+            console.log(
+              '⚠️ top method failed, trying mpstat...',
+              topError.message
+            );
+
+            // Method 4: Try mpstat (if available)
+            try {
+              const mpstatResult = await execAsync(
+                "mpstat 1 1 | tail -1 | awk '{print 100-$NF}'"
+              );
+              cpuUsage = parseFloat(mpstatResult.stdout.trim());
+              console.log(
+                `📊 mpstat result: ${mpstatResult.stdout.trim()} -> ${cpuUsage}`
+              );
+
+              if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
+                return {
+                  success: true,
+                  usage: cpuUsage.toFixed(1),
+                  usageType: 'percentage',
+                  cores: os.cpus().length,
+                  model: os.cpus()[0].model,
+                  platform: platform,
+                };
+              }
+            } catch (mpstatError) {
+              console.log(
+                '⚠️ All CPU monitoring methods failed, using load average fallback',
+                mpstatError.message
+              );
+            }
+          }
+        }
+      }
+    } else {
+      // Other platforms - fallback to load average
+      console.log(
+        '🔄 System Monitor - Using load average fallback for platform:',
+        platform
       );
-      const cpuUsage = parseFloat(result.stdout.trim());
-
-      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
-        return {
-          success: true,
-          usage: cpuUsage.toFixed(1),
-          usageType: 'percentage',
-          cores: os.cpus().length,
-          model: os.cpus()[0].model,
-        };
-      }
-    } catch (error) {
-      console.log('Method 2 failed:', error.message);
     }
 
-    // Method 3: Try using vmstat
-    try {
-      const result = await execAsync(
-        "vmstat 1 2 | tail -1 | awk '{print 100-$15}'"
-      );
-      const cpuUsage = parseFloat(result.stdout.trim());
-
-      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
-        return {
-          success: true,
-          usage: cpuUsage.toFixed(1),
-          usageType: 'percentage',
-          cores: os.cpus().length,
-          model: os.cpus()[0].model,
-        };
-      }
-    } catch (error) {
-      console.log('Method 3 failed:', error.message);
-    }
-
-    // Method 4: Try using mpstat (if available)
-    try {
-      const result = await execAsync(
-        "mpstat 1 1 | tail -1 | awk '{print 100-$NF}'"
-      );
-      const cpuUsage = parseFloat(result.stdout.trim());
-
-      if (!isNaN(cpuUsage) && cpuUsage >= 0 && cpuUsage <= 100) {
-        return {
-          success: true,
-          usage: cpuUsage.toFixed(1),
-          usageType: 'percentage',
-          cores: os.cpus().length,
-          model: os.cpus()[0].model,
-        };
-      }
-    } catch (error) {
-      console.log('Method 4 failed:', error.message);
-    }
-
-    // Fallback to load average if all percentage methods fail
+    // Final fallback to os.loadavg() if all methods fail
+    console.log('🔄 System Monitor - Using final load average fallback...');
     const loadAvg = os.loadavg();
+    const cpuCount = os.cpus().length;
+    const loadPercentage = (loadAvg[0] / cpuCount) * 100;
+    cpuUsage = Math.min(loadPercentage, 100);
+
+    console.log(
+      `📊 Load average fallback: ${
+        loadAvg[0]
+      } / ${cpuCount} cores = ${cpuUsage.toFixed(1)}%`
+    );
+
     return {
       success: true,
-      usage: loadAvg[0].toFixed(2),
-      usageType: 'load_average',
-      loadAverage: {
-        '1min': loadAvg[0].toFixed(2),
-        '5min': loadAvg[1].toFixed(2),
-        '15min': loadAvg[2].toFixed(2),
-      },
-      cores: os.cpus().length,
+      usage: cpuUsage.toFixed(1),
+      usageType: 'percentage',
+      cores: cpuCount,
       model: os.cpus()[0].model,
+      platform: platform,
     };
   } catch (error) {
+    console.log(`💥 System Monitor - CPU usage error:`, error);
     return { success: false, error: error.message };
   }
 }
